@@ -24,6 +24,7 @@
 -export([filter_rows/2]).
 -export([row_to_embryo/2]).
 -export([derive_type/1, derive_commune/2, enrich_criteria/1]).
+-export([resolve_insee/2, generate_embryo_list/1]).
 
 -define(BAN_URL,  "https://api-adresse.data.gouv.fr/search/").
 -define(DVF_BASE, "https://files.data.gouv.fr/geo-dvf/latest/csv/").
@@ -76,9 +77,126 @@ start_pop_and_http() ->
     ok.
 
 handle(Body, Memory) when is_binary(Body) ->
-    {[], Memory};
+    {generate_embryo_list(Body), Memory};
 handle(_Body, Memory) ->
     {[], Memory}.
+
+%%%-------------------------------------------------------------------
+%%% Pipeline: free-text -> commune resolution -> DVF CSV -> embryos
+%%%-------------------------------------------------------------------
+
+%% Full pipeline: parse -> enrich (free text) -> resolve INSEE -> fetch CSV per
+%% year -> filter -> embryos, capped by max_results.
+generate_embryo_list(Body) ->
+    Crit = enrich_criteria(extract_params(Body)),
+    case resolve_target(Crit) of
+        undefined -> [];
+        {Insee, Dep} ->
+            {Years, MaxResults} = read_config(),
+            Timeout = maps:get(timeout, Crit),
+            Embryos =
+                lists:append(
+                  [ [ row_to_embryo(R, source_url(Y, Dep, Insee))
+                      || R <- filter_rows(
+                                parse_csv(fetch_csv(Y, Dep, Insee, Timeout)),
+                                Crit) ]
+                    || Y <- Years ]),
+            lists:sublist(Embryos, MaxResults)
+    end.
+
+%% Explicit code_insee wins; else resolve the commune (or free-text value) via BAN.
+resolve_target(Crit) ->
+    case maps:get(code_insee, Crit) of
+        Insee when is_binary(Insee), Insee =/= <<"">> ->
+            {Insee, dep_of(Insee)};
+        _ ->
+            Name = first_nonempty([maps:get(commune, Crit),
+                                   maps:get(value, Crit)]),
+            resolve_insee(Name, maps:get(timeout, Crit))
+    end.
+
+first_nonempty([B | _]) when is_binary(B), B =/= <<"">> -> B;
+first_nonempty([_ | T]) -> first_nonempty(T);
+first_nonempty([]) -> <<"">>.
+
+%% BAN commune lookup -> {Insee, Dep} | undefined.
+resolve_insee(<<"">>, _Timeout) -> undefined;
+resolve_insee(undefined, _Timeout) -> undefined;
+resolve_insee(Name, Timeout) ->
+    Url = ?BAN_URL ++ "?q=" ++ uri_string:quote(unicode:characters_to_list(Name))
+          ++ "&type=municipality&limit=1",
+    case http_get(Url, [{"Accept-Language", "fr"}], Timeout) of
+        {ok, Body} ->
+            try json:decode(Body) of
+                #{<<"features">> := [F | _]} ->
+                    P = maps:get(<<"properties">>, F, #{}),
+                    Insee = maps:get(<<"citycode">>, P, <<>>),
+                    Dep   = dep_from_context(maps:get(<<"context">>, P, <<>>)),
+                    case Insee of
+                        <<>> -> undefined;
+                        _    -> {Insee, Dep}
+                    end;
+                _ -> undefined
+            catch _:_ -> undefined end;
+        error -> undefined
+    end.
+
+%% "24, Dordogne, Nouvelle-Aquitaine" -> <<"24">>
+dep_from_context(Ctx) when is_binary(Ctx), Ctx =/= <<>> ->
+    case binary:split(Ctx, [<<",">>]) of
+        [Dep | _] -> string:trim(Dep);
+        _         -> Ctx
+    end;
+dep_from_context(_) -> <<>>.
+
+%% Fallback: derive department from an INSEE code (overseas = 3 chars).
+dep_of(Insee) when is_binary(Insee) ->
+    case Insee of
+        <<"97", _/binary>> -> binary:part(Insee, 0, 3);
+        <<"98", _/binary>> -> binary:part(Insee, 0, 3);
+        _ when byte_size(Insee) >= 2 -> binary:part(Insee, 0, 2);
+        _ -> Insee
+    end.
+
+source_url(Year, Dep, Insee) ->
+    unicode:characters_to_list(
+      [?DVF_BASE, Year, "/communes/", Dep, "/", Insee, ".csv"]).
+
+fetch_csv(Year, Dep, Insee, Timeout) ->
+    case http_get(source_url(Year, Dep, Insee), [], Timeout) of
+        {ok, Body} -> Body;
+        error      -> <<"">>
+    end.
+
+http_get(Url, ExtraHeaders, TimeoutSecs) ->
+    Headers = [{"User-Agent", "dvf_filter/0.1 (EmergenceSystem)"} | ExtraHeaders],
+    case httpc:request(get, {Url, Headers},
+                       [{timeout, TimeoutSecs * 1000},
+                        {ssl, [{verify, verify_none}]}],
+                       [{body_format, binary}]) of
+        {ok, {{_, 200, _}, _, Body}} -> {ok, Body};
+        _ -> error
+    end.
+
+read_config() ->
+    Default = {[<<"2024">>, <<"2023">>], 50},
+    case file:read_file("dvf_config.json") of
+        {ok, Bin} ->
+            try json:decode(Bin) of
+                Map when is_map(Map) ->
+                    Years = case maps:get(<<"years">>, Map, undefined) of
+                        L when is_list(L), L =/= [] -> L;
+                        _ -> element(1, Default)
+                    end,
+                    Max = case maps:get(<<"max_results">>, Map, undefined) of
+                        N when is_integer(N), N > 0 -> N;
+                        _ -> element(2, Default)
+                    end,
+                    {Years, Max};
+                _ -> Default
+            catch _:_ -> Default end;
+        _ -> Default
+    end.
 
 %%%-------------------------------------------------------------------
 %%% Query parsing
