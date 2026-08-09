@@ -22,6 +22,7 @@
 -export([type_matches/2]).
 -export([parse_csv/1]).
 -export([filter_rows/2]).
+-export([row_to_embryo/2]).
 
 -define(BAN_URL,  "https://api-adresse.data.gouv.fr/search/").
 -define(DVF_BASE, "https://files.data.gouv.fr/geo-dvf/latest/csv/").
@@ -211,3 +212,32 @@ price_in_range(_P, undefined, undefined) -> true;
 price_in_range(P, Min, undefined) -> P >= Min;
 price_in_range(P, undefined, Max) -> P =< Max;
 price_in_range(P, Min, Max) -> P >= Min andalso P =< Max.
+
+%%%-------------------------------------------------------------------
+%%% Embryo building
+%%%-------------------------------------------------------------------
+
+row_to_embryo(Row, SourceUrl) ->
+    Id      = get_field(Row, <<"id_mutation">>),
+    Type    = get_field(Row, <<"type_local">>),
+    Price   = get_field(Row, <<"valeur_fonciere">>),
+    Surface = get_field(Row, <<"surface_reelle_bati">>),
+    Pieces  = get_field(Row, <<"nombre_pieces_principales">>),
+    Commune = get_field(Row, <<"nom_commune">>),
+    Dep     = get_field(Row, <<"code_departement">>),
+    Date    = get_field(Row, <<"date_mutation">>),
+    Url    = unicode:characters_to_binary([SourceUrl, "#", Id]),
+    Resume = unicode:characters_to_binary(
+        io_lib:format("~ts ~ts m² ~ts pièces — ~ts € — ~ts (~ts) — ~ts",
+            [b2l(Type), b2l(Surface), b2l(Pieces), b2l(Price),
+             b2l(Commune), b2l(Dep), b2l(Date)])),
+    Props = #{<<"url">> => Url, <<"resume">> => Resume,
+              <<"price">> => Price, <<"type">> => Type,
+              <<"location">> => unicode:characters_to_binary(
+                                  [b2l(Commune), " (", b2l(Dep), ")"]),
+              <<"surface">> => Surface, <<"source">> => <<"dvf.etalab.gouv.fr">>},
+    #{<<"properties">> => Props}.
+
+get_field(Row, K) -> maps:get(K, Row, <<>>).
+b2l(B) when is_binary(B) -> unicode:characters_to_list(B);
+b2l(_) -> "".

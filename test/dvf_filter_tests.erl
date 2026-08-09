@@ -92,3 +92,16 @@ filter_rows_drops_non_vente_test() ->
             "x,Echange,1,Maison,\n">>,
     Rows = dvf_filter_app:parse_csv(Csv),
     ?assertEqual([], dvf_filter_app:filter_rows(Rows, crit(undefined, undefined, undefined))).
+
+embryo_shape_test() ->
+    [R1 | _] = dvf_filter_app:parse_csv(sample_csv()),
+    Src = "https://files.data.gouv.fr/geo-dvf/latest/csv/2024/communes/24/24520.csv",
+    E = dvf_filter_app:row_to_embryo(R1, Src),
+    P = maps:get(<<"properties">>, E),
+    Url = maps:get(<<"url">>, P),
+    ?assert(is_binary(Url)),
+    ?assertNotEqual(nomatch, binary:match(Url, <<"2024-1">>)),
+    Resume = maps:get(<<"resume">>, P),
+    ?assertNotEqual(nomatch, binary:match(Resume, <<"Maison">>)),
+    ?assertEqual(<<"105000">>, maps:get(<<"price">>, P)),
+    ?assertEqual(<<"Maison">>, maps:get(<<"type">>, P)).
