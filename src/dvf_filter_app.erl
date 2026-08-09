@@ -19,6 +19,7 @@
 -export([start/2, stop/1]).
 -export([handle/2, base_capabilities/0]).
 -export([extract_params/1]).
+-export([type_matches/2]).
 
 -define(BAN_URL,  "https://api-adresse.data.gouv.fr/search/").
 -define(DVF_BASE, "https://files.data.gouv.fr/geo-dvf/latest/csv/").
@@ -130,3 +131,25 @@ timeout_of(Map) ->
         T when is_binary(T)  -> (catch binary_to_integer(T));
         _                    -> 10
     end.
+
+%%%-------------------------------------------------------------------
+%%% Property-type vocabulary mapping
+%%%-------------------------------------------------------------------
+
+type_matches(undefined, _Row) -> true;
+type_matches(Type, Row) ->
+    T   = string:lowercase(Type),
+    Loc = maps:get(<<"type_local">>, Row, <<>>),
+    case T of
+        <<"appartement">>          -> Loc =:= <<"Appartement">>;
+        <<"maison">>               -> Loc =:= <<"Maison">>;
+        <<"maison de village">>    -> Loc =:= <<"Maison">>;
+        <<"terrain">>              -> Loc =:= <<>> andalso
+                                      maps:get(<<"surface_terrain">>, Row, <<>>) =/= <<>>;
+        <<"immeuble">>             -> best_effort(T, Row);
+        <<"château"/utf8>>         -> best_effort(<<"chateau">>, Row);
+        <<"chateau">>              -> best_effort(<<"chateau">>, Row);
+        _                          -> true
+    end.
+
+best_effort(_Term, _Row) -> true.
