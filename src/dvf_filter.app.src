@@ -1,0 +1,25 @@
+{application, dvf_filter, [
+    {description, "em_filter for French DVF real-estate transactions"},
+    {vsn, "0.1.0"},
+    {registered, [dvf_filter_sup, dvf_filter_server]},
+    {mod, {dvf_filter_app, []}},
+    {applications, [
+        kernel,
+        stdlib,
+        inets,
+        ssl,
+        cowboy,
+        em_filter
+    ]},
+    {env, [
+        {pop_port,   9510},
+        {query_port, 9511},
+        {pop_seeds,  []}
+    ]},
+    {modules, [
+        dvf_filter_sup,
+        dvf_filter_server
+    ]},
+    {licenses, ["Apache-2.0"]},
+    {links, [{"GitHub", "https://github.com/EmergenceSystem/dvf_filter"}]}
+]}.
