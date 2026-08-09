@@ -21,6 +21,7 @@
 -export([extract_params/1]).
 -export([type_matches/2]).
 -export([parse_csv/1]).
+-export([filter_rows/2]).
 
 -define(BAN_URL,  "https://api-adresse.data.gouv.fr/search/").
 -define(DVF_BASE, "https://files.data.gouv.fr/geo-dvf/latest/csv/").
@@ -174,3 +175,39 @@ row_map(Cols, Values) ->
 zip_pad([C | Cs], [V | Vs]) -> [{C, V} | zip_pad(Cs, Vs)];
 zip_pad([C | Cs], [])       -> [{C, <<>>} | zip_pad(Cs, [])];
 zip_pad([], _)              -> [].
+
+%%%-------------------------------------------------------------------
+%%% Row filtering
+%%%-------------------------------------------------------------------
+
+filter_rows(Rows, Crit) ->
+    Type = maps:get(type, Crit, undefined),
+    Min  = maps:get(min_price, Crit, undefined),
+    Max  = maps:get(max_price, Crit, undefined),
+    [R || R <- Rows,
+          maps:get(<<"nature_mutation">>, R, <<>>) =:= <<"Vente">>,
+          type_matches(Type, R),
+          price_in_range(price_of(R), Min, Max)].
+
+price_of(Row) ->
+    case maps:get(<<"valeur_fonciere">>, Row, <<>>) of
+        <<>> -> undefined;
+        V    -> to_number(V)
+    end.
+
+to_number(Bin) ->
+    S = binary_to_list(Bin),
+    case string:to_float(S) of
+        {error, no_float} ->
+            case string:to_integer(S) of
+                {error, _} -> undefined;
+                {I, _}     -> I
+            end;
+        {F, _} -> trunc(F)
+    end.
+
+price_in_range(undefined, _Min, _Max) -> false;
+price_in_range(_P, undefined, undefined) -> true;
+price_in_range(P, Min, undefined) -> P >= Min;
+price_in_range(P, undefined, Max) -> P =< Max;
+price_in_range(P, Min, Max) -> P >= Min andalso P =< Max.

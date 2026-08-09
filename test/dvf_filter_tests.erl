@@ -71,3 +71,24 @@ parse_csv_fields_test() ->
 
 parse_csv_empty_test() ->
     ?assertEqual([], dvf_filter_app:parse_csv(<<"">>)).
+
+crit(Type, Min, Max) ->
+    #{type => Type, min_price => Min, max_price => Max}.
+
+filter_rows_by_type_test() ->
+    Rows = dvf_filter_app:parse_csv(sample_csv()),
+    Out = dvf_filter_app:filter_rows(Rows, crit(<<"maison">>, undefined, undefined)),
+    ?assertEqual(1, length(Out)),
+    ?assertEqual(<<"Maison">>, maps:get(<<"type_local">>, hd(Out))).
+
+filter_rows_by_price_test() ->
+    Rows = dvf_filter_app:parse_csv(sample_csv()),
+    Out = dvf_filter_app:filter_rows(Rows, crit(undefined, 150000, 300000)),
+    ?assertEqual(1, length(Out)),
+    ?assertEqual(<<"240000">>, maps:get(<<"valeur_fonciere">>, hd(Out))).
+
+filter_rows_drops_non_vente_test() ->
+    Csv = <<"id_mutation,nature_mutation,valeur_fonciere,type_local,surface_terrain\n"
+            "x,Echange,1,Maison,\n">>,
+    Rows = dvf_filter_app:parse_csv(Csv),
+    ?assertEqual([], dvf_filter_app:filter_rows(Rows, crit(undefined, undefined, undefined))).
