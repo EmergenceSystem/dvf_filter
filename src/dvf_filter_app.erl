@@ -18,6 +18,7 @@
 
 -export([start/2, stop/1]).
 -export([handle/2, base_capabilities/0]).
+-export([extract_params/1]).
 
 -define(BAN_URL,  "https://api-adresse.data.gouv.fr/search/").
 -define(DVF_BASE, "https://files.data.gouv.fr/geo-dvf/latest/csv/").
@@ -73,3 +74,59 @@ handle(Body, Memory) when is_binary(Body) ->
     {[], Memory};
 handle(_Body, Memory) ->
     {[], Memory}.
+
+%%%-------------------------------------------------------------------
+%%% Query parsing
+%%%-------------------------------------------------------------------
+
+extract_params(JsonBinary) ->
+    try json:decode(JsonBinary) of
+        Map when is_map(Map) ->
+            #{
+              value      => get_bin(Map, [<<"value">>, <<"query">>], <<"">>),
+              type       => opt_bin(Map, <<"type">>),
+              code_insee => opt_bin(Map, <<"code_insee">>),
+              commune    => opt_bin(Map, <<"commune">>),
+              min_price  => opt_int(Map, <<"min_price">>),
+              max_price  => opt_int(Map, <<"max_price">>),
+              timeout    => timeout_of(Map)
+            };
+        _ ->
+            base_criteria(JsonBinary)
+    catch
+        _:_ -> base_criteria(JsonBinary)
+    end.
+
+base_criteria(Bin) ->
+    #{value => Bin, type => undefined, code_insee => undefined,
+      commune => undefined, min_price => undefined, max_price => undefined,
+      timeout => 10}.
+
+get_bin(Map, [K | Rest], Default) ->
+    case maps:get(K, Map, undefined) of
+        V when is_binary(V) -> V;
+        _ -> get_bin(Map, Rest, Default)
+    end;
+get_bin(_Map, [], Default) -> Default.
+
+opt_bin(Map, K) ->
+    case maps:get(K, Map, undefined) of
+        V when is_binary(V), V =/= <<"">> -> V;
+        _ -> undefined
+    end.
+
+opt_int(Map, K) ->
+    case maps:get(K, Map, undefined) of
+        V when is_integer(V) -> V;
+        V when is_binary(V) ->
+            try binary_to_integer(V) catch _:_ -> undefined end;
+        _ -> undefined
+    end.
+
+timeout_of(Map) ->
+    case maps:get(<<"timeout">>, Map, undefined) of
+        undefined            -> 10;
+        T when is_integer(T) -> T;
+        T when is_binary(T)  -> (catch binary_to_integer(T));
+        _                    -> 10
+    end.
