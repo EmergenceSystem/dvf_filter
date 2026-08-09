@@ -105,3 +105,36 @@ embryo_shape_test() ->
     ?assertNotEqual(nomatch, binary:match(Resume, <<"Maison">>)),
     ?assertEqual(<<"105000">>, maps:get(<<"price">>, P)),
     ?assertEqual(<<"Maison">>, maps:get(<<"type">>, P)).
+
+derive_type_maison_test() ->
+    ?assertEqual(<<"maison">>, dvf_filter_app:derive_type(<<"maison sarlat">>)).
+
+derive_type_phrase_test() ->
+    ?assertEqual(<<"maison de village"/utf8>>,
+                 dvf_filter_app:derive_type(<<"maison de village a sarlat"/utf8>>)).
+
+derive_type_appartement_test() ->
+    ?assertEqual(<<"appartement">>, dvf_filter_app:derive_type(<<"un appartement bordeaux">>)).
+
+derive_type_none_test() ->
+    ?assertEqual(undefined, dvf_filter_app:derive_type(<<"sarlat">>)).
+
+derive_commune_test() ->
+    ?assertEqual(<<"Sarlat-la-Canéda"/utf8>>,
+                 dvf_filter_app:derive_commune(<<"maison Sarlat-la-Canéda"/utf8>>, <<"maison">>)).
+
+derive_commune_no_type_test() ->
+    ?assertEqual(<<"Bordeaux">>, dvf_filter_app:derive_commune(<<"Bordeaux">>, undefined)).
+
+enrich_freetext_test() ->
+    C0 = dvf_filter_app:extract_params(<<"maison Sarlat-la-Canéda"/utf8>>),
+    C  = dvf_filter_app:enrich_criteria(C0),
+    ?assertEqual(<<"maison">>, maps:get(type, C)),
+    ?assertEqual(<<"Sarlat-la-Canéda"/utf8>>, maps:get(commune, C)).
+
+enrich_keeps_structured_test() ->
+    C0 = dvf_filter_app:extract_params(
+           <<"{\"query\":\"x\",\"type\":\"appartement\",\"code_insee\":\"33063\"}">>),
+    C  = dvf_filter_app:enrich_criteria(C0),
+    ?assertEqual(<<"appartement">>, maps:get(type, C)),
+    ?assertEqual(<<"33063">>, maps:get(code_insee, C)).

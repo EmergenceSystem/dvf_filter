@@ -23,6 +23,7 @@
 -export([parse_csv/1]).
 -export([filter_rows/2]).
 -export([row_to_embryo/2]).
+-export([derive_type/1, derive_commune/2, enrich_criteria/1]).
 
 -define(BAN_URL,  "https://api-adresse.data.gouv.fr/search/").
 -define(DVF_BASE, "https://files.data.gouv.fr/geo-dvf/latest/csv/").
@@ -134,6 +135,62 @@ timeout_of(Map) ->
         T when is_binary(T)  -> (catch binary_to_integer(T));
         _                    -> 10
     end.
+
+%%%-------------------------------------------------------------------
+%%% Free-text parsing
+%%%-------------------------------------------------------------------
+
+%% Ordered so multi-word phrases match before their prefixes.
+-define(TYPE_VOCAB, [<<"maison de village"/utf8>>, <<"appartement">>,
+                     <<"maison">>, <<"château"/utf8>>, <<"chateau">>,
+                     <<"terrain">>, <<"immeuble">>]).
+
+%% Find the first vocabulary term occurring in the lowercased free text.
+derive_type(Value) when is_binary(Value) ->
+    LC = string:lowercase(Value),
+    find_type(?TYPE_VOCAB, LC).
+
+find_type([], _LC) -> undefined;
+find_type([Term | Rest], LC) ->
+    case binary:match(LC, Term) of
+        nomatch -> find_type(Rest, LC);
+        _       -> Term
+    end.
+
+%% Remove the matched type term from the value, trim, collapse spaces.
+%% Returns the commune candidate, or `undefined' if nothing is left.
+derive_commune(Value, undefined) when is_binary(Value) ->
+    normalize_commune(Value);
+derive_commune(Value, Type) when is_binary(Value), is_binary(Type) ->
+    LC = string:lowercase(Value),
+    case binary:match(LC, Type) of
+        nomatch -> normalize_commune(Value);
+        {Start, Len} ->
+            Before = binary:part(Value, 0, Start),
+            After  = binary:part(Value, Start + Len, byte_size(Value) - Start - Len),
+            normalize_commune(<<Before/binary, " ", After/binary>>)
+    end.
+
+normalize_commune(Bin) ->
+    Trimmed = string:trim(re:replace(Bin, "\\s+", " ", [global, {return, binary}])),
+    case Trimmed of
+        <<>> -> undefined;
+        _    -> Trimmed
+    end.
+
+%% Fill type/commune from the free-text `value' when they were not supplied
+%% as structured fields (structured always wins).
+enrich_criteria(Crit) ->
+    Value = maps:get(value, Crit),
+    Type = case maps:get(type, Crit) of
+        undefined when is_binary(Value) -> derive_type(Value);
+        T -> T
+    end,
+    Commune = case {maps:get(code_insee, Crit), maps:get(commune, Crit)} of
+        {undefined, undefined} when is_binary(Value) -> derive_commune(Value, Type);
+        {_, C} -> C
+    end,
+    Crit#{type => Type, commune => Commune}.
 
 %%%-------------------------------------------------------------------
 %%% Property-type vocabulary mapping
