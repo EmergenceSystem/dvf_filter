@@ -51,3 +51,23 @@ type_terrain_test() ->
 
 type_chateau_besteffort_test() ->
     ?assert(dvf_filter_app:type_matches(<<"château"/utf8>>, row(<<"Maison">>, <<>>))).
+
+sample_csv() ->
+    <<"id_mutation,date_mutation,nature_mutation,valeur_fonciere,type_local,"
+      "surface_reelle_bati,nombre_pieces_principales,surface_terrain,"
+      "nom_commune,code_departement,adresse_nom_voie,longitude,latitude\n"
+      "2024-1,2024-01-11,Vente,105000,Maison,57,4,,Sarlat-la-Canéda,24,RUE X,1.22,44.89\n"
+      "2024-2,2024-02-02,Vente,240000,Appartement,80,3,,Sarlat-la-Canéda,24,RUE Y,1.23,44.90\n"/utf8>>.
+
+parse_csv_count_test() ->
+    Rows = dvf_filter_app:parse_csv(sample_csv()),
+    ?assertEqual(2, length(Rows)).
+
+parse_csv_fields_test() ->
+    [R1 | _] = dvf_filter_app:parse_csv(sample_csv()),
+    ?assertEqual(<<"Maison">>, maps:get(<<"type_local">>, R1)),
+    ?assertEqual(<<"105000">>, maps:get(<<"valeur_fonciere">>, R1)),
+    ?assertEqual(<<"Vente">>,  maps:get(<<"nature_mutation">>, R1)).
+
+parse_csv_empty_test() ->
+    ?assertEqual([], dvf_filter_app:parse_csv(<<"">>)).

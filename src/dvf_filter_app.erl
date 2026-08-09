@@ -20,6 +20,7 @@
 -export([handle/2, base_capabilities/0]).
 -export([extract_params/1]).
 -export([type_matches/2]).
+-export([parse_csv/1]).
 
 -define(BAN_URL,  "https://api-adresse.data.gouv.fr/search/").
 -define(DVF_BASE, "https://files.data.gouv.fr/geo-dvf/latest/csv/").
@@ -153,3 +154,23 @@ type_matches(Type, Row) ->
     end.
 
 best_effort(_Term, _Row) -> true.
+
+%%%-------------------------------------------------------------------
+%%% CSV parsing
+%%%-------------------------------------------------------------------
+
+parse_csv(Bin) when is_binary(Bin) ->
+    case binary:split(Bin, [<<"\n">>], [global, trim]) of
+        [] -> [];
+        [Header | DataLines] ->
+            Cols = binary:split(Header, [<<",">>], [global]),
+            [row_map(Cols, binary:split(Line, [<<",">>], [global]))
+             || Line <- DataLines, Line =/= <<>>]
+    end.
+
+row_map(Cols, Values) ->
+    maps:from_list(zip_pad(Cols, Values)).
+
+zip_pad([C | Cs], [V | Vs]) -> [{C, V} | zip_pad(Cs, Vs)];
+zip_pad([C | Cs], [])       -> [{C, <<>>} | zip_pad(Cs, [])];
+zip_pad([], _)              -> [].
