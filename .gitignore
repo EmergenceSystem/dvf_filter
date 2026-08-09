@@ -5,3 +5,6 @@ ebin/
 *.beam
 *.plt
 rebar.lock
+
+# Local config
+dvf_config.json

@@ -250,7 +250,11 @@ timeout_of(Map) ->
     case maps:get(<<"timeout">>, Map, undefined) of
         undefined            -> 10;
         T when is_integer(T) -> T;
-        T when is_binary(T)  -> (catch binary_to_integer(T));
+        T when is_binary(T)  ->
+            case catch binary_to_integer(T) of
+                I when is_integer(I) -> I;
+                _ -> 10
+            end;
         _                    -> 10
     end.
 
@@ -263,37 +267,61 @@ timeout_of(Map) ->
                      <<"maison">>, <<"château"/utf8>>, <<"chateau">>,
                      <<"terrain">>, <<"immeuble">>]).
 
-%% Find the first vocabulary term occurring in the lowercased free text.
+%% Split on whitespace (unicode-aware); drop empties.
+tokens(Bin) when is_binary(Bin) ->
+    [T || T <- re:split(Bin, "\\s+", [{return, binary}, unicode]), T =/= <<>>].
+
+%% True if Sub occurs as a consecutive sublist of List.
+contains_seq(_List, []) -> true;
+contains_seq(List, Sub) ->
+    starts_with(List, Sub) orelse
+    (case List of [] -> false; [_ | T] -> contains_seq(T, Sub) end).
+
+starts_with(_List, []) -> true;
+starts_with([X | T1], [X | T2]) -> starts_with(T1, T2);
+starts_with(_, _) -> false.
+
+%% Find the first vocabulary term whose (lowercased) tokens appear as a
+%% consecutive run of whole tokens in the (lowercased) value.
 derive_type(Value) when is_binary(Value) ->
-    LC = string:lowercase(Value),
-    find_type(?TYPE_VOCAB, LC).
+    LowToks = tokens(string:lowercase(Value)),
+    find_type(?TYPE_VOCAB, LowToks).
 
-find_type([], _LC) -> undefined;
-find_type([Term | Rest], LC) ->
-    case binary:match(LC, Term) of
-        nomatch -> find_type(Rest, LC);
-        _       -> Term
+find_type([], _Toks) -> undefined;
+find_type([Term | Rest], Toks) ->
+    case contains_seq(Toks, tokens(string:lowercase(Term))) of
+        true  -> Term;
+        false -> find_type(Rest, Toks)
     end.
 
-%% Remove the matched type term from the value, trim, collapse spaces.
-%% Returns the commune candidate, or `undefined' if nothing is left.
+%% Remove the first consecutive run of tokens matching Type (compared
+%% lowercased) from Value's original-case tokens; return the rest joined,
+%% or `undefined' if nothing remains.
 derive_commune(Value, undefined) when is_binary(Value) ->
-    normalize_commune(Value);
+    join_commune(tokens(Value));
 derive_commune(Value, Type) when is_binary(Value), is_binary(Type) ->
-    LC = string:lowercase(Value),
-    case binary:match(LC, Type) of
-        nomatch -> normalize_commune(Value);
-        {Start, Len} ->
-            Before = binary:part(Value, 0, Start),
-            After  = binary:part(Value, Start + Len, byte_size(Value) - Start - Len),
-            normalize_commune(<<Before/binary, " ", After/binary>>)
+    Orig     = tokens(Value),
+    Low      = tokens(string:lowercase(Value)),
+    TermToks = tokens(string:lowercase(Type)),
+    join_commune(remove_seq(Orig, Low, TermToks)).
+
+%% Walk Orig/Low in lockstep; when Low starts with TermToks, drop that run
+%% from Orig too. Only the first occurrence is removed.
+remove_seq(Orig, Low, TermToks) ->
+    case starts_with(Low, TermToks) of
+        true  -> lists:nthtail(length(TermToks), Orig);
+        false ->
+            case {Orig, Low} of
+                {[O | OT], [_ | LT]} -> [O | remove_seq(OT, LT, TermToks)];
+                _ -> Orig
+            end
     end.
 
-normalize_commune(Bin) ->
-    Trimmed = string:trim(re:replace(Bin, "\\s+", " ", [global, {return, binary}])),
-    case Trimmed of
+join_commune([]) -> undefined;
+join_commune(Toks) ->
+    case string:trim(iolist_to_binary(lists:join(<<" ">>, Toks))) of
         <<>> -> undefined;
-        _    -> Trimmed
+        Bin  -> Bin
     end.
 
 %% Fill type/commune from the free-text `value' when they were not supplied

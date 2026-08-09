@@ -138,3 +138,32 @@ enrich_keeps_structured_test() ->
     C  = dvf_filter_app:enrich_criteria(C0),
     ?assertEqual(<<"appartement">>, maps:get(type, C)),
     ?assertEqual(<<"33063">>, maps:get(code_insee, C)).
+
+derive_type_substring_commune_test() ->
+    %% Communes that merely contain a type word must NOT be parsed as that type.
+    ?assertEqual(undefined, dvf_filter_app:derive_type(<<"Châteaudun"/utf8>>)),
+    ?assertEqual(undefined, dvf_filter_app:derive_type(<<"Maisons-Laffitte">>)),
+    ?assertEqual(undefined, dvf_filter_app:derive_type(<<"Châteauroux"/utf8>>)).
+
+derive_commune_substring_preserved_test() ->
+    ?assertEqual(<<"Châteaudun"/utf8>>,
+                 dvf_filter_app:derive_commune(<<"Châteaudun"/utf8>>, undefined)),
+    %% With a real leading type token, only that token is stripped:
+    ?assertEqual(<<"Châteaudun"/utf8>>,
+                 dvf_filter_app:derive_commune(<<"maison Châteaudun"/utf8>>, <<"maison">>)).
+
+derive_type_wholeword_still_works_test() ->
+    ?assertEqual(<<"maison">>, dvf_filter_app:derive_type(<<"maison sarlat">>)),
+    ?assertEqual(<<"appartement">>, dvf_filter_app:derive_type(<<"appartement bordeaux">>)),
+    ?assertEqual(<<"maison de village"/utf8>>,
+                 dvf_filter_app:derive_type(<<"maison de village a uzes"/utf8>>)).
+
+derive_commune_wholeword_test() ->
+    ?assertEqual(<<"Sarlat-la-Canéda"/utf8>>,
+                 dvf_filter_app:derive_commune(<<"maison Sarlat-la-Canéda"/utf8>>, <<"maison">>)),
+    ?assertEqual(<<"uzes">>,
+                 dvf_filter_app:derive_commune(<<"maison de village uzes">>, <<"maison de village">>)).
+
+timeout_bad_value_test() ->
+    C = dvf_filter_app:extract_params(<<"{\"query\":\"x\",\"timeout\":\"abc\"}">>),
+    ?assertEqual(10, maps:get(timeout, C)).
