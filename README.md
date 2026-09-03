@@ -4,6 +4,13 @@ em_filter agent for French real-estate transactions (DVF — Demandes de Valeurs
 Foncières). Resolves a commune via the BAN address API, downloads Etalab's
 per-commune DVF CSV export, and returns matching transactions as embryos.
 
+
+<!-- emergence-context -->
+Part of **[EmergenceSystem](https://github.com/EmergenceSystem)** — a distributed
+discovery network of small, single-source agents. This filter joins the em_pop gossip
+mesh and answers `POST /agent/query`; Emquest fans each query out to many filters in
+parallel and aggregates the results.
+
 ## Query
 
 Called over the em-pop `/agent/query` contract with a JSON body `{"query": "<text>"}`.
